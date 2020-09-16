@@ -69,15 +69,15 @@ class OptimalTour:
     tot_val = 0.
     visited_sites = set()
     for day, line in enumerate(lines):
-      now = 0
       ln = line.split()
+      now = 0
       x = 0
       y = 0
       is_first_site_of_day = True
       for site_s in ln:
         ssite = int(site_s)
         site = ssite - 1
-        if not 0 <= ssite < self.n_site:
+        if not 0 <= site < self.n_site:
           raise RuntimeError('Site id {} should be between 1 and {}'.format(ssite, self.n_site))
         if site in visited_sites:
           raise RuntimeError('You have already visited site {}'.format(ssite))
