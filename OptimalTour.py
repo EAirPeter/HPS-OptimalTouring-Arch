@@ -2,7 +2,7 @@
 # vim:ts=2:sts=2:sw=2
 
 out_dir = './out'
-input_dir = './inputs'
+input_dir = './tests'
 solver_dir = './solvers'
 
 max_n_site = 200
@@ -22,9 +22,59 @@ import traceback
 
 from typing import List, Optional, Tuple
 
-class OptimalTour:
-  def __init__(self, n_site: int, n_day: int, stdin: str):
+def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subprocess.PIPE, \
+    timeout: Optional[float] = None) -> Tuple[int, bytes, bytes]:
+  with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, \
+      stdout=subprocess.PIPE, stderr=stderr) as proc:
+    try:
+      out, err = proc.communicate(stdin, timeout=timeout)
+      proc.stdin.close()
+      return proc.returncode, out, err
+    except:
+      raise
+    finally:
+      try:
+        psproc = psutil.Process(proc.pid)
+        children = psproc.children(True)
+        for child in children:
+          child.kill()
+        psutil.wait_procs(children)
+      except:
+        pass
+
+def write_table(fname: str, tbl: List[List]):
+  n_col = len(tbl[0])
+  widths = [0] * n_col
+  for row in tbl:
+    if n_col != len(row):
+      raise RuntimeError('Invalid table')
+    for col in range(n_col):
+      if row[col] is not None:
+        widths[col] = max(widths[col], len(str(row[col])))
+
+  formats = []
+  fmt = ''
+  for col in range(n_col):
+    if col > 0:
+      fmt += ' '
+    fmt += '{{0[{}]:<{}}}'.format(col, widths[col])
+    formats.append(fmt)
+
+  with open(fname, 'w', encoding='utf8') as f:
+    for row in tbl:
+      idx = n_col
+      while idx > 0 and len(str(row[idx - 1])) == 0:
+        idx -= 1
+      if idx > 0:
+        f.write(formats[idx - 1].format(row))
+      f.write('\n')
+
+class TestCase:
+  def __init__(self, name: str, n_site: int, n_day: int, stdin: str):
+    self.name = name
     self.stdin = stdin.encode('utf8')
+    self.results = []
+    self.out_summary = None
     self.x = [0] * n_site
     self.y = [0] * n_site
     self.val = [0.] * n_site
@@ -58,7 +108,7 @@ class OptimalTour:
         self.beghr[day][site] = int(ln[2])
         self.endhr[day][site] = int(ln[3])
 
-  def parse_output(self, out: str) -> float:
+  def check_output(self, out: str) -> float:
     lines = out.split('\n')
     while lines and not lines[-1]:
       lines.pop()
@@ -95,6 +145,117 @@ class OptimalTour:
 
     return tot_val
 
+  def save_summary(self):
+    self.out_summary = os.path.join(out_dir, self.name + '_summary.txt')
+    tbl = [['solver_name', 'score', 'comment']]
+    for res in self.results:
+      tbl.append([res.solver.name, res.score, res.comment])
+    write_table(self.out_summary, tbl)
+
+class RunResult:
+  def __init__(self, solver, test):
+    self.solver = solver
+    self.test = test
+    self.out_run = None
+    self.err_run = None
+    self.out_result = None
+    self.out_summary = None
+    self.score = 0.
+    self.comment = None
+
+class Solver:
+  def __init__(self, name: str, dname: str):
+    self.name = name
+    self.dname = dname
+    self.out_dir = os.path.join(out_dir, name)
+    self.results = []
+    self.log_compile = None
+
+  def do_compile(self):
+    retv, out, _ = subexec(['./compile'], self.dname, stderr=subprocess.STDOUT, \
+        timeout=compile_timeout_sec)
+    if out:
+      out = out.decode('utf8')
+      os.makedirs(self.out_dir, exist_ok=True)
+      self.log_compile = os.path.join(self.out_dir, 'compilation_output.txt')
+      with open(self.log_compile, 'w', encoding='utf8') as f:
+        f.write(out)
+    if retv != 0:
+      raise RuntimeError('Compilation script shall return 0, but actually returned {}' \
+          .format(retv))
+
+  def compile(self):
+    try:
+      fname_compile = os.path.join(self.dname, 'compile')
+      if os.path.exists(fname_compile):
+        print('Compiling solver: {}...'.format(self.name), end='')
+        self.do_compile()
+        print(' Done')
+      return True
+    except:
+      print('Failed to compile solver: {}'.format(self.name))
+      traceback.print_exc()
+    return False
+
+  def do_run(self, test: TestCase):
+    retv, out, err = subexec(['./run'], self.dname, test.stdin, timeout=run_timeout_sec)
+    res_dir = os.path.join(self.out_dir, test.name)
+    os.makedirs(res_dir, exist_ok=True)
+
+    res = RunResult(self, test)
+    self.results.append(res)
+    test.results.append(res)
+
+    has_output = False
+    if out:
+      has_output = True
+      out = out.decode('utf8')
+      res.out_run = os.path.join(res_dir, 'stdout.txt')
+      with open(res.out_run, 'w', encoding='utf8') as f:
+        f.write(out)
+    if err:
+      err = err.decode('utf8')
+      res.err_run = os.path.join(res_dir, 'stderr.txt')
+      with open(res.err_run, 'w', encoding='utf8') as f:
+        f.write(err)
+
+    if retv != 0:
+      res.score = 0.
+      res.comment = 'Run script shall return 0, but actually returned {}'.format(retv)
+    elif not has_output:
+      res.score = 0.
+      res.comment = 'Your program did not output anything'
+    else:
+      try:
+        res.score = test.check_output(out)
+        res.comment = None
+      except Exception as exn:
+        res.score = 0.
+        res.comment = str(exn)
+
+    res.out_result = os.path.join(res_dir, 'result.txt')
+    with open(res.out_result, 'w', encoding='utf8') as f:
+      if res.comment:
+        f.write('{}\n{}\n'.format(res.score, res.comment))
+      else:
+        f.write('{}\n'.format(res.score))
+
+    if retv != 0:
+      raise RuntimeError(res.comment)
+
+  def run(self, test: TestCase):
+    try:
+      self.do_run(test)
+    except:
+      print('Failed to run solver {} for test: {}'.format(self.name, test.name))
+      traceback.print_exc()
+
+  def save_summary(self):
+    self.out_summary = os.path.join(self.out_dir, 'summary.txt')
+    tbl = [['test_name', 'score', 'comment']]
+    for res in self.results:
+      tbl.append([res.test.name, res.score, res.comment])
+    write_table(self.out_summary, tbl)
 
 def clean_output():
   if os.path.isdir(out_dir):
@@ -102,7 +263,7 @@ def clean_output():
   if os.path.exists(out_dir):
     raise RuntimeError('Failed to remove output files')
 
-def parse_input(fname: str) -> OptimalTour:
+def make_test(name: str, fname: str) -> TestCase:
   if not os.path.isfile(fname):
     raise RuntimeError('Not a file: {}'.format(fname))
 
@@ -185,24 +346,9 @@ def parse_input(fname: str) -> OptimalTour:
       if (site, day) not in sitedays:
         raise RuntimeError('Missing day {} for site {}'.format(day, site))
 
-  return OptimalTour(n_site, n_day, stdin)
+  return TestCase(name, n_site, n_day, stdin)
 
-def prepare_inputs(dname: str):
-  print('Looking for test cases...')
-  inputs = []
-  for name in os.listdir(dname):
-    fname = os.path.join(dname, name)
-    try:
-      otp = parse_input(fname)
-      inputs.append((name, otp))
-      print('Added input: {}'.format(name))
-    except:
-      print('Failed to add input: {}'.format(name))
-      traceback.print_exc()
-  print('There are {} test cases in total'.format(len(inputs)))
-  return inputs
-
-def validate_solver(dname: str):
+def make_solver(name: str, dname: str):
   if not os.path.isdir(dname):
     raise RuntimeError('Not a directory: {}'.format(dname))
 
@@ -219,14 +365,31 @@ def validate_solver(dname: str):
   else:
     raise RuntimeError('No \'run\' file')
 
-def prepare_solvers(dname: str):
-  print('Looking for solvers...')
-  solvers = []
+  return Solver(name, dname)
+
+def prepare_tests(dname: str) -> List[TestCase]:
+  print('Looking for test cases...')
+  tests = []
   for name in os.listdir(dname):
     fname = os.path.join(dname, name)
     try:
-      validate_solver(fname)
-      solvers.append((name, fname))
+      test = make_test(name, fname)
+      tests.append(test)
+      print('Added input: {}'.format(name))
+    except:
+      print('Failed to add input: {}'.format(name))
+      traceback.print_exc()
+  print('There are {} test cases in total'.format(len(tests)))
+  return tests
+
+def prepare_solvers(dname: str) -> List[Solver]:
+  print('Looking for solvers...')
+  solvers = []
+  for name in os.listdir(dname):
+    subdname = os.path.join(dname, name)
+    try:
+      solver = make_solver(name, subdname)
+      solvers.append(solver)
       print('Added solver: {}'.format(name))
     except:
       print('Failed to add solver: {}'.format(name))
@@ -234,96 +397,24 @@ def prepare_solvers(dname: str):
   print('There are {} solvers in total'.format(len(solvers)))
   return solvers
 
-def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subprocess.PIPE, \
-    timeout: Optional[float] = None):
-  with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, \
-      stdout=subprocess.PIPE, stderr=stderr) as proc:
-    try:
-      out, err = proc.communicate(stdin, timeout=timeout)
-      proc.stdin.close()
-      return proc.returncode == 0, out, err
-    except:
-      raise
-    finally:
-      try:
-        psproc = psutil.Process(proc.pid)
-        children = psproc.children(True)
-        for child in children:
-          child.kill()
-        psutil.wait_procs(children)
-      except:
-        pass
-
-def do_compile(name: str, dname: str):
-  succ, out, _ = subexec(['./compile'], dname, stderr=subprocess.STDOUT, \
-      timeout=compile_timeout_sec)
-  if out:
-    out = out.decode('utf8')
-    fname_log = os.path.join(os.path.join(out_dir, name), 'compile.log')
-    os.makedirs(os.path.dirname(fname_log), exist_ok=True)
-    with open(fname_log, 'w', encoding='utf8') as f:
-      f.write(out)
-  if not succ:
-    raise RuntimeError('Failed to compile')
-
-def do_run(name: str, dname: str, iname: str, otp: OptimalTour):
-  succ, out, err = subexec(['./run'], dname, otp.stdin, timeout=run_timeout_sec)
-  res_dir = os.path.join(os.path.join(out_dir, name), iname)
-  os.makedirs(res_dir, exist_ok=True)
-  if out:
-    out = out.decode('utf8')
-    fname_out = os.path.join(res_dir, 'run.out')
-    with open(fname_out, 'w', encoding='utf8') as f:
-      f.write(out)
-  if err:
-    err = err.decode('utf8')
-    fname_log = os.path.join(res_dir, 'run.log')
-    with open(fname_log, 'w', encoding='utf8') as f:
-      f.write(err)
-
-  if not succ:
-    val = 0.
-    comment = 'Runtime error'
-  else:
-    try:
-      val = otp.parse_output(out)
-      comment = 'The output looks fine'
-    except Exception as exn:
-      val = 0.
-      comment = str(exn)
-
-  fname_result = os.path.join(res_dir, 'result.out')
-  with open(fname_result, 'w', encoding='utf8') as f:
-    f.write('{}\n{}\n'.format(val, comment))
-
-  if not succ:
-    raise RuntimeError('Runtime error')
-
-def run(inputs: List[Tuple[str, OptimalTour]], solvers: List[Tuple[str, str]]):
-  for (name, dname) in solvers:
-    try:
-      fname_compile = os.path.join(dname, 'compile')
-      if os.path.exists(fname_compile):
-        print('Compiling solver: {}...'.format(name), end='')
-        do_compile(name, dname)
-        print(' Done')
-      print('Running test cases for solver: {}'.format(name))
-      for (iname, otp) in inputs:
-        try:
-          do_run(name, dname, iname, otp)
-        except:
-          print('Failed to run solver {} for test: {}'.format(name, iname))
-          traceback.print_exc()
-    except:
-      print('Failed to compile solver: {}'.format(name))
-      traceback.print_exc()
+def run(tests: List[Tuple[str, TestCase]], solvers: List[Tuple[str, str]]):
+  for solver in solvers:
+    if solver.compile():
+      print('Running test cases for solver: {}'.format(solver.name))
+      for test in tests:
+        solver.run(test)
+  print('Writing summaries...')
+  for solver in solvers:
+    solver.save_summary()
+  for test in tests:
+    test.save_summary()
   print('All done')
 
 def run_all():
-  inputs = prepare_inputs(input_dir)
+  tests = prepare_tests(input_dir)
   solvers = prepare_solvers(solver_dir)
 
-  run(inputs, solvers)
+  run(tests, solvers)
 
 if __name__ == '__main__':
   opts, args = getopt.getopt(sys.argv[1:], '', ['clean'])
