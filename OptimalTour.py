@@ -45,12 +45,13 @@ def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subproces
 def write_table(fname: str, tbl: List[List]):
   n_col = len(tbl[0])
   widths = [0] * n_col
-  for row in tbl:
+  for i_row in range(len(tbl)):
+    row = ['' if col is None else str(col) for col in tbl[i_row]]
+    tbl[i_row] = row
     if n_col != len(row):
       raise RuntimeError('Invalid table')
     for col in range(n_col):
-      if row[col] is not None:
-        widths[col] = max(widths[col], len(str(row[col])))
+      widths[col] = max(widths[col], len(row[col]))
 
   formats = []
   fmt = ''
@@ -68,6 +69,17 @@ def write_table(fname: str, tbl: List[List]):
       if idx > 0:
         f.write(formats[idx - 1].format(row))
       f.write('\n')
+
+class RunResult:
+  def __init__(self, solver, test):
+    self.solver = solver
+    self.test = test
+    self.out_run = None
+    self.err_run = None
+    self.out_result = None
+    self.out_summary = None
+    self.score = 0.
+    self.comment = None
 
 class TestCase:
   def __init__(self, name: str, n_site: int, n_day: int, stdin: str):
@@ -146,22 +158,14 @@ class TestCase:
     return tot_val
 
   def save_summary(self):
+    def key_res(res: RunResult):
+      return res.score
+    self.results = sorted(self.results, key=key_res, reverse=True)
     self.out_summary = os.path.join(out_dir, self.name + '_summary.txt')
     tbl = [['solver_name', 'score', 'comment']]
     for res in self.results:
       tbl.append([res.solver.name, res.score, res.comment])
     write_table(self.out_summary, tbl)
-
-class RunResult:
-  def __init__(self, solver, test):
-    self.solver = solver
-    self.test = test
-    self.out_run = None
-    self.err_run = None
-    self.out_result = None
-    self.out_summary = None
-    self.score = 0.
-    self.comment = None
 
 class Solver:
   def __init__(self, name: str, dname: str):
