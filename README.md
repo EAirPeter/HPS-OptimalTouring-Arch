@@ -46,6 +46,10 @@ Architecture by team `alias please='sudo'`
 * Python 3: I am not sure what the lowest supported version is. The driver works fine over
   Python 3.8.5 .
 * Python 3 Package: `psutil`
+* Command line:
+  * Without option: Run all solvers with all test cases.
+  * With `--clean`: Remove the output directory.
+  * With `--verbose`: Verbose mode.
 
 ## Notes on Composing Test Cases
 * You can compose your own test case, as long as you follow the format described on the website.
