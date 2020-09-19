@@ -11,6 +11,8 @@ max_n_day = 10
 compile_timeout_sec = 20
 run_timeout_sec = 2
 
+is_verbose = False
+
 import getopt
 import io
 import os
@@ -29,6 +31,10 @@ def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subproces
     try:
       out, err = proc.communicate(stdin, timeout=timeout)
       proc.stdin.close()
+      if out:
+        out = out.decode('utf8')
+      if err:
+        err = err.decode('utf8')
       return proc.returncode, out, err
     except:
       raise
@@ -36,6 +42,7 @@ def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subproces
       try:
         psproc = psutil.Process(proc.pid)
         children = psproc.children(True)
+        proc.kill()
         for child in children:
           child.kill()
         psutil.wait_procs(children)
@@ -174,68 +181,78 @@ class Solver:
     self.out_dir = os.path.join(out_dir, name)
     self.results = []
     self.log_compile = None
+    self.compilation_exn = RuntimeError('Not compiled yet')
 
   def do_compile(self):
-    retv, out, _ = subexec(['./compile'], self.dname, stderr=subprocess.STDOUT, \
-        timeout=compile_timeout_sec)
+    saved_exn = None
+    out = None
+    try:
+      retv, out, _ = subexec(['./compile'], self.dname, stderr=subprocess.STDOUT, \
+          timeout=compile_timeout_sec)
+      if retv != 0:
+        raise RuntimeError('./compile shall return 0, but actually returned {}'.format(retv))
+    except Exception as exn:
+      saved_exn = exn
+
+    os.makedirs(self.out_dir, exist_ok=True)
+
     if out:
-      out = out.decode('utf8')
-      os.makedirs(self.out_dir, exist_ok=True)
       self.log_compile = os.path.join(self.out_dir, 'compilation_output.txt')
       with open(self.log_compile, 'w', encoding='utf8') as f:
         f.write(out)
-    if retv != 0:
-      raise RuntimeError('Compilation script shall return 0, but actually returned {}' \
-          .format(retv))
+
+    if saved_exn is not None:
+      raise saved_exn
 
   def compile(self):
     try:
       fname_compile = os.path.join(self.dname, 'compile')
       if os.path.exists(fname_compile):
-        print('Compiling solver: {}...'.format(self.name), end='')
+        print('Compiling solver \'{}\'...'.format(self.name))
         self.do_compile()
-        print(' Done')
-      return True
-    except:
-      print('Failed to compile solver: {}'.format(self.name))
-      traceback.print_exc()
-    return False
+      self.compilation_exn = None
+    except Exception as exn:
+      self.compilation_exn = exn
+      print('Failed to compile solver \'{}\': {}'.format(self.name, str(exn)))
+      if is_verbose:
+        traceback.print_exc()
 
   def do_run(self, test: TestCase):
-    retv, out, err = subexec(['./run'], self.dname, test.stdin, timeout=run_timeout_sec)
-    res_dir = os.path.join(self.out_dir, test.name)
-    os.makedirs(res_dir, exist_ok=True)
-
     res = RunResult(self, test)
     self.results.append(res)
     test.results.append(res)
 
-    has_output = False
+    saved_exn = None
+    out = None
+    err = None
+    try:
+      if self.compilation_exn is not None:
+        raise RuntimeError('Compilation failed: {}'.format(str(self.compilation_exn)))
+      retv, out, err = subexec(['./run'], self.dname, test.stdin, timeout=run_timeout_sec)
+      if retv != 0:
+        raise RuntimeError('./run shall return 0, but actually returned {}'.format(retv))
+      if not out:
+        raise RuntimeError('Your program did not output anything')
+      res.score = test.check_output(out)
+      res.comment = None
+    except Exception as exn:
+      saved_exn = exn
+
+    res_dir = os.path.join(self.out_dir, test.name)
+    os.makedirs(res_dir, exist_ok=True)
+
     if out:
-      has_output = True
-      out = out.decode('utf8')
       res.out_run = os.path.join(res_dir, 'stdout.txt')
       with open(res.out_run, 'w', encoding='utf8') as f:
         f.write(out)
     if err:
-      err = err.decode('utf8')
       res.err_run = os.path.join(res_dir, 'stderr.txt')
       with open(res.err_run, 'w', encoding='utf8') as f:
         f.write(err)
 
-    if retv != 0:
+    if saved_exn is not None:
       res.score = 0.
-      res.comment = 'Run script shall return 0, but actually returned {}'.format(retv)
-    elif not has_output:
-      res.score = 0.
-      res.comment = 'Your program did not output anything'
-    else:
-      try:
-        res.score = test.check_output(out)
-        res.comment = None
-      except Exception as exn:
-        res.score = 0.
-        res.comment = str(exn)
+      res.comment = str(saved_exn)
 
     res.out_result = os.path.join(res_dir, 'result.txt')
     with open(res.out_result, 'w', encoding='utf8') as f:
@@ -244,15 +261,20 @@ class Solver:
       else:
         f.write('{}\n'.format(res.score))
 
-    if retv != 0:
-      raise RuntimeError(res.comment)
+    if saved_exn is not None:
+      raise saved_exn
 
   def run(self, test: TestCase):
     try:
+      if self.compilation_exn is not None:
+        print('  Skipped test case \'{}\''.format(test.name))
+      else:
+        print('  Running on test case \'{}\''.format(test.name))
       self.do_run(test)
     except:
-      print('Failed to run solver {} for test: {}'.format(self.name, test.name))
-      traceback.print_exc()
+      if is_verbose:
+        print('  Failed on test case \'{}\':'.format(test.name))
+        traceback.print_exc()
 
   def save_summary(self):
     self.out_summary = os.path.join(self.out_dir, 'summary.txt')
@@ -379,10 +401,11 @@ def prepare_tests(dname: str) -> List[TestCase]:
     try:
       test = make_test(name, fname)
       tests.append(test)
-      print('Added input: {}'.format(name))
-    except:
-      print('Failed to add input: {}'.format(name))
-      traceback.print_exc()
+      print('Added test case \'{}\''.format(name))
+    except Exception as exn:
+      print('Failed to add test case \'{}\': {}'.format(name, str(exn)))
+      if is_verbose:
+        traceback.print_exc()
   print('There are {} test cases in total'.format(len(tests)))
   return tests
 
@@ -403,10 +426,10 @@ def prepare_solvers(dname: str) -> List[Solver]:
 
 def run(tests: List[Tuple[str, TestCase]], solvers: List[Tuple[str, str]]):
   for solver in solvers:
-    if solver.compile():
-      print('Running test cases for solver: {}'.format(solver.name))
-      for test in tests:
-        solver.run(test)
+    solver.compile()
+    print('Running test cases for solver \'{}\''.format(solver.name))
+    for test in tests:
+      solver.run(test)
   print('Writing summaries...')
   for solver in solvers:
     solver.save_summary()
@@ -421,11 +444,13 @@ def run_all():
   run(tests, solvers)
 
 if __name__ == '__main__':
-  opts, args = getopt.getopt(sys.argv[1:], '', ['clean'])
+  opts, args = getopt.getopt(sys.argv[1:], '', ['clean', 'verbose'])
   is_clean = False
   for opt in opts:
     if opt[0] == '--clean':
       is_clean = True
+    if opt[0] == '--verbose':
+      is_verbose = True
   if is_clean:
     clean_output()
   else:
