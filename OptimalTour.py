@@ -65,8 +65,8 @@ def write_table(fname: str, tbl: List[List]):
   for col in range(n_col):
     if col > 0:
       fmt += ' '
+    formats.append(fmt + '{{0[{}]}}'.format(col))
     fmt += '{{0[{}]:<{}}}'.format(col, widths[col])
-    formats.append(fmt)
 
   with open(fname, 'w', encoding='utf8') as f:
     for row in tbl:
@@ -213,7 +213,7 @@ class Solver:
       self.compilation_exn = None
     except Exception as exn:
       self.compilation_exn = exn
-      print('Failed to compile solver \'{}\': {}'.format(self.name, str(exn)))
+      print('  Failed to compile solver \'{}\': {}'.format(self.name, str(exn)))
       if is_verbose:
         traceback.print_exc()
 
@@ -401,9 +401,9 @@ def prepare_tests(dname: str) -> List[TestCase]:
     try:
       test = make_test(name, fname)
       tests.append(test)
-      print('Added test case \'{}\''.format(name))
+      print('  Added test case \'{}\''.format(name))
     except Exception as exn:
-      print('Failed to add test case \'{}\': {}'.format(name, str(exn)))
+      print('  Failed to add test case \'{}\': {}'.format(name, str(exn)))
       if is_verbose:
         traceback.print_exc()
   print('There are {} test cases in total'.format(len(tests)))
@@ -417,9 +417,9 @@ def prepare_solvers(dname: str) -> List[Solver]:
     try:
       solver = make_solver(name, subdname)
       solvers.append(solver)
-      print('Added solver: {}'.format(name))
+      print('  Added solver: {}'.format(name))
     except:
-      print('Failed to add solver: {}'.format(name))
+      print('  Failed to add solver: {}'.format(name))
       traceback.print_exc()
   print('There are {} solvers in total'.format(len(solvers)))
   return solvers
