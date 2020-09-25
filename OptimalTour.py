@@ -51,7 +51,7 @@ def subexec(cmd: List[str], cwd: str, stdin: str = None, stderr: int = subproces
 
 def write_table(fname: str, tbl: List[List]):
   n_col = len(tbl[0])
-  widths = [0] * n_col
+  widths = [0 for i in range(n_col)]
   for i_row in range(len(tbl)):
     row = ['' if col is None else str(col) for col in tbl[i_row]]
     tbl[i_row] = row
@@ -94,12 +94,12 @@ class TestCase:
     self.stdin = stdin.encode('utf8')
     self.results = []
     self.out_summary = None
-    self.x = [0] * n_site
-    self.y = [0] * n_site
-    self.val = [0.] * n_site
-    self.time = [0] * n_site
-    self.beghr = [[0] * n_site] * n_day
-    self.endhr = [[0] * n_site] * n_day
+    self.x = [0 for i in range(n_site)]
+    self.y = [0 for i in range(n_site)]
+    self.val = [0. for i in range(n_site)]
+    self.time = [0 for i in range(n_site)]
+    self.beghr = [[0 for i in range(n_site)] for j in range(n_day)]
+    self.endhr = [[0 for i in range(n_site)] for j in range(n_day)]
     self.n_site = n_site
     self.n_day = n_day
 
