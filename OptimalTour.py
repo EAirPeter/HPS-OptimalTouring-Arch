@@ -9,7 +9,7 @@ max_n_site = 200
 max_n_day = 10
 
 compile_timeout_sec = 20
-run_timeout_sec = 2
+run_timeout_sec = 120
 
 is_verbose = False
 
