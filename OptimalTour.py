@@ -161,7 +161,7 @@ class TestCase:
         if now + self.time[site] > self.endhr[day][site] * 60:
           raise RuntimeError('Insufficient time to visit site {}'.format(ssite))
         tot_val += self.val[site]
-
+        now += self.time[site]
     return tot_val
 
   def save_summary(self):
