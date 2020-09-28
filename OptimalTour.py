@@ -13,10 +13,13 @@ run_timeout_sec = 120
 
 is_verbose = False
 
+from colors import colors
 import getopt
 import io
 import os
+from PIL import Image, ImageDraw
 import psutil
+import random
 import shutil
 import subprocess
 import sys
@@ -166,6 +169,61 @@ class TestCase:
         now += self.time[site]
     return tot_val
 
+  def draw_images(self, out: str):
+    grid_width = 20
+    width = (max(self.x) + 1) * grid_width
+    height = (max(self.y) + 1) * grid_width
+    images = []
+    draws = []
+
+    for _ in range(self.n_day + 1):
+      image = Image.new("RGB", (width, height), "white")
+      draw = ImageDraw.Draw(image)
+      images.append(image)
+      draws.append(draw)
+
+    # draw sites
+    for i in range(self.n_site):
+      for draw in draws:
+        draw.ellipse([
+          self.x[i] * grid_width - 3,
+          self.y[i] * grid_width - 3,
+          self.x[i] * grid_width + 3,
+          self.y[i] * grid_width + 3],
+          fill=256
+        )
+        draw.text([self.x[i] * grid_width + 5, self.y[i] * grid_width], "{}".format(i + 1), fill=256)
+
+    # draw each day
+    lines = out.split('\n')
+    for day, line in enumerate(lines):
+      ln = line.split()
+      color = random.choice(colors)
+
+      for i in range(1, len(ln)):
+        site_from = int(ln[i - 1]) - 1
+        site_to = int(ln[i]) - 1
+
+        draws[0].line([
+          self.x[site_from] * grid_width,
+          self.y[site_from] * grid_width,
+          self.x[site_to] * grid_width,
+          self.y[site_to] * grid_width],
+          fill=color,
+          width=6
+        )
+
+        draws[day + 1].line([
+          self.x[site_from] * grid_width,
+          self.y[site_from] * grid_width,
+          self.x[site_to] * grid_width,
+          self.y[site_to] * grid_width],
+          fill=color,
+          width=6
+        )
+
+    return images
+
   def save_summary(self):
     def key_res(res: RunResult):
       return res.score
@@ -273,6 +331,7 @@ class Solver:
     saved_exn = None
     out = None
     err = None
+    images = None
     try:
       if self.compilation_exn is not None:
         raise RuntimeError('Compilation failed: {}'.format(str(self.compilation_exn)))
@@ -283,6 +342,7 @@ class Solver:
         raise RuntimeError('Your program did not output anything')
       res.score = test.check_output(out)
       res.comment = None
+      images = test.draw_images(out)
     except Exception as exn:
       saved_exn = exn
 
@@ -297,6 +357,20 @@ class Solver:
       res.err_run = os.path.join(res_dir, 'stderr.txt')
       with open(res.err_run, 'w', encoding='utf8') as f:
         f.write(err)
+
+    images_html = ["Not Available"]
+    if images:
+      images_html = []
+
+      for i in range(len(images)):
+        if i == 0:
+          file_name = "overview.png"
+          images_html.append('<a href="{}">Overview</a>'.format(file_name))
+        else:
+          file_name = "day{}.png".format(i)
+          images_html.append('<a href="{}">Day {}</a>'.format(file_name, i))
+
+        images[i].save(os.path.join(res_dir, file_name))
 
     if saved_exn is not None:
       res.score = 0.
@@ -340,6 +414,7 @@ class Solver:
       <tr><th>Compilation Output</th><td>{}</td></tr>
       <tr><th>Standard Output</th><td>{}</td></tr>
       <tr><th>Standard Error</th><td>{}</td></tr>
+      <tr><th>Images</th><td>{}</td></tr>
     </table>
   </body>
 </html>
@@ -347,7 +422,8 @@ class Solver:
            '(none)' if res.comment is None else res.comment, \
            '(none)' if self.log_compile is None else '<a href="compilation_output">(click)</a>', \
            '(none)' if res.out_run is None else '<a href="stdout.txt">(click)</a>', \
-           '(none)' if res.err_run is None else '<a href="stderr.txt">(click)</a>'))
+           '(none)' if res.err_run is None else '<a href="stderr.txt">(click)</a>', \
+           " | ".join(images_html)))
 
     if saved_exn is not None:
       raise saved_exn
