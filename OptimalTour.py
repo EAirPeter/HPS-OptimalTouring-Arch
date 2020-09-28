@@ -88,6 +88,7 @@ class RunResult:
     self.err_run = None
     self.out_result = None
     self.out_summary = None
+    self.out_html = None
     self.score = 0.
     self.comment = None
 
@@ -97,6 +98,7 @@ class TestCase:
     self.stdin = stdin.encode('utf8')
     self.results = []
     self.out_summary = None
+    self.out_html = None
     self.x = [0 for i in range(n_site)]
     self.y = [0 for i in range(n_site)]
     self.val = [0. for i in range(n_site)]
@@ -231,6 +233,52 @@ class TestCase:
     for res in self.results:
       tbl.append([res.solver.name, res.score, res.comment])
     write_table(self.out_summary, tbl)
+    self.save_html()
+
+  def save_html(self):
+    self.out_html = os.path.join(out_dir, self.name + '.html')
+    with open(self.out_html, 'w', encoding='utf8') as f:
+      f.write("""
+<html>
+  <head>
+    <title>Optimal Touring Problem</title>
+    <style>
+      table {{
+        font-family: arial, sans-serif;
+        border-collapse: collapse;
+      }}
+
+      td, th {{
+        border: 1px solid #dddddd;
+        text-align: left;
+        padding: 8px;
+      }}
+
+      tr:nth-child(even) {{
+        background-color: #dddddd;
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>Test case '{}'</h1>
+    <table>
+      <tr>
+        <th>Solver</th>
+        <th>Score</th>
+        <th>Comment</th>
+      </tr>""".format(self.name))
+      for res in self.results:
+        f.write("""
+      <tr>
+        <td><a href="{}/{}/index.html">{}</a></td>
+        <td>{}</td>
+        <td>{}</td>
+      </tr>""".format(res.solver.name, res.test.name, res.solver.name, res.score, res.comment))
+      f.write("""
+    </table>
+  </body>
+</html>
+""")
 
 class Solver:
   def __init__(self, name: str, dname: str):
@@ -331,6 +379,46 @@ class Solver:
       else:
         f.write('{}\n'.format(res.score))
 
+    res.out_html = os.path.join(res_dir, 'index.html')
+    with open(res.out_html, 'w', encoding='utf8') as f:
+      f.write("""
+<html>
+  <head>
+    <title>Optimal Touring Problem</title>
+    <style>
+      table {{
+        font-family: arial, sans-serif;
+        border-collapse: collapse;
+      }}
+
+      td, th {{
+        border: 1px solid #dddddd;
+        text-align: left;
+        padding: 8px;
+      }}
+
+      tr:nth-child(even) {{
+        background-color: #dddddd;
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>Test case '{}' on solver '{}'</h1>
+    <table>
+      <tr><th>Score</th><td>{}</td></tr>
+      <tr><th>Comment</th><td>{}</td></tr>
+      <tr><th>Compilation Output</th><td>{}</td></tr>
+      <tr><th>Standard Output</th><td>{}</td></tr>
+      <tr><th>Standard Error</th><td>{}</td></tr>
+    </table>
+  </body>
+</html>
+""".format(test.name, self.name, res.score,
+           '(none)' if res.comment is None else res.comment, \
+           '(none)' if self.log_compile is None else '<a href="compilation_output">(click)</a>', \
+           '(none)' if res.out_run is None else '<a href="stdout.txt">(click)</a>', \
+           '(none)' if res.err_run is None else '<a href="stderr.txt">(click)</a>'))
+
     if saved_exn is not None:
       raise saved_exn
 
@@ -352,6 +440,52 @@ class Solver:
     for res in self.results:
       tbl.append([res.test.name, res.score, res.comment])
     write_table(self.out_summary, tbl)
+    self.save_html()
+
+  def save_html(self):
+    self.out_html = os.path.join(self.out_dir, 'index.html')
+    with open(self.out_html, 'w', encoding='utf8') as f:
+      f.write("""
+<html>
+  <head>
+    <title>Optimal Touring Problem</title>
+    <style>
+      table {{
+        font-family: arial, sans-serif;
+        border-collapse: collapse;
+      }}
+
+      td, th {{
+        border: 1px solid #dddddd;
+        text-align: left;
+        padding: 8px;
+      }}
+
+      tr:nth-child(even) {{
+        background-color: #dddddd;
+      }}
+    </style>
+  </head>
+  <body>
+    <h1>Solver '{}'</h1>
+    <table>
+      <tr>
+        <th>Test Case</th>
+        <th>Score</th>
+        <th>Comment</th>
+      </tr>""".format(self.name))
+      for res in self.results:
+        f.write("""
+      <tr>
+        <td><a href="{}/index.html">{}</a></td>
+        <td>{}</td>
+        <td>{}</td>
+      </tr>""".format(res.test.name, res.test.name, res.score, res.comment))
+      f.write("""
+    </table>
+  </body>
+</html>
+""")
 
 def clean_output():
   if os.path.isdir(out_dir):
@@ -494,7 +628,34 @@ def prepare_solvers(dname: str) -> List[Solver]:
   print('There are {} solvers in total'.format(len(solvers)))
   return solvers
 
-def run(tests: List[Tuple[str, TestCase]], solvers: List[Tuple[str, str]]):
+def save_html(tests: List[TestCase], solvers: List[Solver]):
+  fname = os.path.join(out_dir, 'index.html')
+  with open(fname, 'w', encoding='utf8') as f:
+    f.write("""
+<html>
+  <head>
+    <title>Optimal Touring Problem</title>
+  </head>
+  <body>
+    <h1>By solver...</h1>
+      <ul>""")
+    for solver in solvers:
+      f.write("""
+        <li><a href="{}/index.html">{}</a></li>""".format(solver.name, solver.name))
+    f.write("""
+      </ul>
+    <h1>By test case...</h1>
+      <ul>""")
+    for test in tests:
+      f.write("""
+        <li><a href="{}.html">{}</a></li>""".format(test.name, test.name))
+    f.write("""
+      </ul>
+  </body>
+</html>
+""")
+
+def run(tests: List[TestCase], solvers: List[Solver]):
   for solver in solvers:
     solver.compile()
     print('Running test cases for solver \'{}\''.format(solver.name))
@@ -505,6 +666,7 @@ def run(tests: List[Tuple[str, TestCase]], solvers: List[Tuple[str, str]]):
     solver.save_summary()
   for test in tests:
     test.save_summary()
+  save_html(tests, solvers)
   print('All done')
 
 def run_all():
