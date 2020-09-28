@@ -358,15 +358,19 @@ class Solver:
       with open(res.err_run, 'w', encoding='utf8') as f:
         f.write(err)
 
+    images_html = ["Not Available"]
     if images:
+      images_html = []
+
       for i in range(len(images)):
         if i == 0:
           file_name = "overview.png"
+          images_html.append('<a href="{}">Overview</a>'.format(file_name))
         else:
           file_name = "day{}.png".format(i)
+          images_html.append('<a href="{}">Day {}</a>'.format(file_name, i))
 
         images[i].save(os.path.join(res_dir, file_name))
-        print(file_name)
 
     if saved_exn is not None:
       res.score = 0.
@@ -410,6 +414,7 @@ class Solver:
       <tr><th>Compilation Output</th><td>{}</td></tr>
       <tr><th>Standard Output</th><td>{}</td></tr>
       <tr><th>Standard Error</th><td>{}</td></tr>
+      <tr><th>Images</th><td>{}</td></tr>
     </table>
   </body>
 </html>
@@ -417,7 +422,8 @@ class Solver:
            '(none)' if res.comment is None else res.comment, \
            '(none)' if self.log_compile is None else '<a href="compilation_output">(click)</a>', \
            '(none)' if res.out_run is None else '<a href="stdout.txt">(click)</a>', \
-           '(none)' if res.err_run is None else '<a href="stderr.txt">(click)</a>'))
+           '(none)' if res.err_run is None else '<a href="stderr.txt">(click)</a>', \
+           " | ".join(images_html)))
 
     if saved_exn is not None:
       raise saved_exn
