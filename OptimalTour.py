@@ -537,13 +537,13 @@ def make_test(name: str, fname: str) -> TestCase:
           raise RuntimeError('Invalid site id at line {}'.format(lnum))
         if not 1 <= desired_time <= 1440:
           raise RuntimeError('Invalid desired time at line {}'.format(lnum))
-        if not 0 < value:
+        if not 0 <= value:
           raise RuntimeError('Invalid value at line {}'.format(lnum))
         if site in sites:
           raise RuntimeError('Duplicated site id at line {}'.format(lnum))
         sites.add(site)
-        if (avenue, street) in locations:
-          raise RuntimeError('Duplicated site location at line {}'.format(lnum))
+        #if (avenue, street) in locations:
+        #  raise RuntimeError('Duplicated site location at line {}'.format(lnum))
         locations.add((avenue, street))
       else:
         if ln != ['site', 'day', 'beginhour', 'endhour']:
@@ -631,6 +631,9 @@ def prepare_solvers(dname: str) -> List[Solver]:
     except:
       print('  Failed to add solver: {}'.format(name))
       traceback.print_exc()
+  def key_solver(solver: Solver):
+    return solver.name
+  solvers = sorted(solvers, key=key_solver)
   print('There are {} solvers in total'.format(len(solvers)))
   return solvers
 
