@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 # vim:ts=2:sts=2:sw=2
 
 out_dir = './out'
